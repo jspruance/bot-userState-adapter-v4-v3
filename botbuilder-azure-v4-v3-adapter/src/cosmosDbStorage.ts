@@ -11,6 +11,7 @@ import { ConnectionPolicy, DocumentClient, RequestOptions, UriFactory, FeedOptio
 import * as semaphore from 'semaphore';
 import { CosmosDbKeyEscape } from './cosmosDbKeyEscape';
 import * as V3StorageProvider from '../node_modules/botbuilder-azure';
+import * as validate from 'uuid-validate';
 
 const _semaphore: semaphore.Semaphore = semaphore(1);
 
@@ -171,91 +172,123 @@ export class CosmosDbStorage implements Storage {
 
         // v3 storage client
         this.v3storageClient = new V3StorageProvider.AzureBotStorage({ gzipData: false }, docDbClient);
+
     }
 
-    public read(keys: string[]): Promise<StoreItems> {        
-        if (!keys || keys.length === 0) {
-            // No keys passed in, no result to return.
-            return Promise.resolve({});
-        }
+    public extractUserId(key: string): string {
+        const keySegments: Array<string> = key.split('/');
+        const user_id: string = keySegments.find(segment => {
+          return validate(segment);
+        });
+        return user_id;
+    }
 
-        const parameterSequence: string = Array.from(Array(keys.length).keys())
-            .map((ix: number) => `@id${ ix }`)
-            .join(',');
-        const parameterValues: {
-            name: string;
-            value: string;
-        }[] = keys.map((key: string, ix: number) => ({
-            name: `@id${ ix }`,
-            value: CosmosDbKeyEscape.escapeKey(key)
-        }));
+    public read(keys: string[]): Promise<StoreItems> {
+        
+        const userStateKey: string = keys.find(key => {
+            return key.includes("users");
+        });
 
-        const querySpec: {
-            query: string;
-            parameters: {
+        if(userStateKey) {
+            const context: IBotStorageContext = {
+                userId: this.extractUserId(userStateKey),
+                persistUserData: true,
+                persistConversationData: false
+            };
+    
+            return new Promise((resolve, reject) => {
+                this.v3storageClient.getData(context, (err) => {
+                    if (err) return reject();
+                    return resolve();
+                });
+            });
+        } else {
+
+            if (!keys || keys.length === 0) {
+                // No keys passed in, no result to return.
+                return Promise.resolve({});
+            }
+
+            const parameterSequence: string = Array.from(Array(keys.length).keys())
+                .map((ix: number) => `@id${ ix }`)
+                .join(',');
+            const parameterValues: {
                 name: string;
                 value: string;
-            }[];
-        } = {
-            query: `SELECT c.id, c.realId, c.document, c._etag FROM c WHERE c.id in (${ parameterSequence })`,
-            parameters: parameterValues
-        };
+            }[] = keys.map((key: string, ix: number) => ({
+                name: `@id${ ix }`,
+                value: CosmosDbKeyEscape.escapeKey(key)
+            }));
 
-        let options: FeedOptions;
-
-        if (this.settings.partitionKey !== null) {
-            options = {
-                partitionKey: this.settings.partitionKey
+            const querySpec: {
+                query: string;
+                parameters: {
+                    name: string;
+                    value: string;
+                }[];
+            } = {
+                query: `SELECT c.id, c.realId, c.document, c._etag FROM c WHERE c.id in (${ parameterSequence })`,
+                parameters: parameterValues
             };
-        }
 
-        return this.ensureCollectionExists().then((collectionLink: string) => {
-            return new Promise<StoreItems>((resolve: any, reject: any): void => {
-                const storeItems: StoreItems = {};
-                const query: any = this.client.queryDocuments(collectionLink, querySpec, options);
-                const getNext: any = (q: any): any => {
-                    q.nextItem((err: any, resource: any): any => {
-                        if (err) {
-                            return reject(err);
-                        }
+            let options: FeedOptions;
 
-                        if (resource === undefined) {
-                            // completed
-                            return resolve(storeItems);
-                        }
-
-                        // push item
-                        storeItems[resource.realId] = resource.document;
-                        storeItems[resource.realId].eTag = resource._etag;
-
-                        // visit the remaining results recursively
-                        getNext(q);
-                    });
+            if (this.settings.partitionKey !== null) {
+                options = {
+                    partitionKey: this.settings.partitionKey
                 };
+            }
 
-                // invoke the function
-                getNext(query);
+            return this.ensureCollectionExists().then((collectionLink: string) => {
+                return new Promise<StoreItems>((resolve: any, reject: any): void => {
+                    const storeItems: StoreItems = {};
+                    const query: any = this.client.queryDocuments(collectionLink, querySpec, options);
+                    const getNext: any = (q: any): any => {
+                        q.nextItem((err: any, resource: any): any => {
+                            if (err) {
+                                return reject(err);
+                            }
+
+                            if (resource === undefined) {
+                                // completed
+                                return resolve(storeItems);
+                            }
+
+                            // push item
+                            storeItems[resource.realId] = resource.document;
+                            storeItems[resource.realId].eTag = resource._etag;
+
+                            // visit the remaining results recursively
+                            getNext(q);
+                        });
+                    };
+
+                    // invoke the function
+                    getNext(query);
+                });
             });
-        });
+        }
     }
 
     public write(changes: StoreItems): Promise<void> {
         const changesKeys = Object.keys(changes);
-        const isUserStateChange = changesKeys.find(change => {
+        const userStateKey: string = changesKeys.find(change => {
           return change.includes("users");
         });
 
-        if(isUserStateChange) {
+        const extractUserStateProps = (changes, key) => {
+            return changes[key].userProfile;
+        }
+
+        if(userStateKey) {
             const context: IBotStorageContext = {
-                userId: "246",
+                userId: this.extractUserId(userStateKey),
                 persistUserData: true,
                 persistConversationData: false
             };
     
             const data: IBotStorageData = {
-                userData: {
-                    userName: "Johnny B Good"
-                }
+                userData: {...extractUserStateProps(changes, userStateKey)}
             };
     
             return new Promise((resolve, reject) => {

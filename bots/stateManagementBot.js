@@ -5,7 +5,7 @@ const { ActivityHandler } = require('botbuilder');
 
 // The accessor names for the conversation data and user profile state property accessors.
 const CONVERSATION_DATA_PROPERTY = 'conversationData';
-const USER_PROFILE_PROPERTY = 'userProfileJJJ';
+const USER_PROFILE_PROPERTY = 'userProfile';
 
 class StateManagementBot extends ActivityHandler {
     constructor(conversationState, userState) {
