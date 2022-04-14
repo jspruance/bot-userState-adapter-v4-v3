@@ -10,7 +10,7 @@
   "dependencies": {
     "@types/documentdb": "^1.10.5",
     "@types/node": "^10.12.18",
-    "async": "^3.1.0",
+    "async": "^3.2.2",
     "azure-storage": "2.10.2",
     "botbuilder": "^4.5.2",
     "botbuilder-azure": "^3.0.4",
