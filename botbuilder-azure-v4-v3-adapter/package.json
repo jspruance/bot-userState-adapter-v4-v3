@@ -15,7 +15,7 @@
     "botbuilder": "^4.5.2",
     "botbuilder-azure": "^3.0.4",
     "documentdb": "1.14.5",
-    "flat": "^4.0.0",
+    "flat": "^5.0.1",
     "promise": "^8.0.3",
     "semaphore": "^1.1.0",
     "uuid-validate": "0.0.3",
